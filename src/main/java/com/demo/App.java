@@ -4,6 +4,7 @@ import java.awt.Dimension;
 import java.awt.GridBagConstraints;
 import java.awt.GridBagLayout;
 import java.awt.Insets;
+import java.text.DecimalFormat;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.concurrent.atomic.AtomicLong;
@@ -16,14 +17,20 @@ import javax.swing.JLabel;
 import javax.swing.JPanel;
 import javax.swing.JSpinner;
 import javax.swing.SpinnerNumberModel;
+import javax.swing.SwingUtilities;
 import javax.swing.WindowConstants;
 
+import org.reactivestreams.Subscriber;
+import org.reactivestreams.Subscription;
+
 import io.smallrye.mutiny.Multi;
+import io.smallrye.mutiny.infrastructure.Infrastructure;
+import io.smallrye.mutiny.subscription.Cancellable;
 
 public class App extends JFrame {
 
-    private static final Multi<Long> mutli = Multi.createFrom()
-            .items(() -> LongStream.range(0, Long.MAX_VALUE).boxed());
+    private static final Multi<Long> multi = Multi.createFrom().items(() -> LongStream.range(0, Long.MAX_VALUE).boxed())
+            .emitOn(Infrastructure.getDefaultWorkerPool());
     // .ticks().every(Duration.ofMillis(100));
     private final JButton btnPush = new JButton("Push");
     private final JButton btnPop = new JButton("Pop");
@@ -75,28 +82,85 @@ public class App extends JFrame {
         if (subscriberLines.isEmpty())
             return;
         SubscriberLine subscriberLine = subscriberLines.remove(subscriberLines.size() - 1);
+        subscriberLine.subscription.cancel();
         container.remove(subscriberLine);
         container.revalidate();
         repaint();
     }
 
-    private static class SubscriberLine extends JPanel {
-        private final JLabel label = new JLabel("Text");
-        private final JSpinner spinner = new JSpinner(new SpinnerNumberModel(5, -1, 100, 1));
-        private final AtomicLong c = new AtomicLong();
+    private static class SubscriberLine extends JPanel implements Subscriber<Long> {
+        private final JLabel labelBandwidth = new JLabel();
+        private final JLabel labelTotal = new JLabel();
+        private final JSpinner spinner = new JSpinner(new SpinnerNumberModel(-1, -1, 100, 1));
+
+        private long c;
+        private long total;
+
+        private Subscription subscription;
+        private long timestamp = System.currentTimeMillis();
 
         public SubscriberLine() {
             initializeGUI();
-            mutli.subscribe().with(item -> c.incrementAndGet());
+            multi.subscribe().withSubscriber(this);
+            spinner.addChangeListener(e -> request());
         }
 
         private void initializeGUI() {
             setLayout(new GridBagLayout());
-            add(label, new GridBagConstraints(0, 0, 1, 1, 1, 0, GridBagConstraints.CENTER,
+            add(labelBandwidth, new GridBagConstraints(0, 0, 1, 1, 1, 0, GridBagConstraints.LINE_START,
                     GridBagConstraints.HORIZONTAL, new Insets(5, 0, 0, 0), 0, 0));
-
-            add(spinner, new GridBagConstraints(1, 0, 1, 1, 0, 0, GridBagConstraints.CENTER,
+            add(labelTotal, new GridBagConstraints(1, 0, 1, 1, 1, 0, GridBagConstraints.LINE_START,
                     GridBagConstraints.HORIZONTAL, new Insets(5, 5, 0, 0), 0, 0));
+            add(spinner, new GridBagConstraints(2, 0, 1, 1, 0, 0, GridBagConstraints.LINE_START,
+                    GridBagConstraints.HORIZONTAL, new Insets(5, 5, 0, 0), 0, 0));
+        }
+
+        private void request() {
+            int value = (int) spinner.getValue();
+            if (value < 0)
+                this.subscription.request(1);
+            else if (value != 0)
+                this.subscription.request(value);
+        }
+
+        @Override
+        public void onSubscribe(Subscription s) {
+            this.subscription = s;
+            request();
+        }
+
+        @Override
+        public void onNext(Long t) {
+            long now = System.currentTimeMillis();
+            c++;
+            total++;
+
+            // while (now - timeStamp < 1000) {
+            // now = System.currentTimeMillis();
+            // }
+
+            // System.out.println(Thread.currentThread());
+
+            DecimalFormat df = new DecimalFormat("##,##,##,##,##,##,##0");
+            labelTotal.setText("Total : " + df.format(total));
+
+            if (now - timestamp > 1000) {
+                labelBandwidth.setText("Items/s : " + df.format(c));
+                c = 0;
+                timestamp = now;
+            }
+
+            int value = (int) spinner.getValue();
+            if (value < 0)
+                this.subscription.request(1);
+        }
+
+        @Override
+        public void onError(Throwable t) {
+        }
+
+        @Override
+        public void onComplete() {
         }
     }
 }
