@@ -5,6 +5,11 @@ import java.awt.GridBagConstraints;
 import java.awt.GridBagLayout;
 import java.awt.Insets;
 import java.text.DecimalFormat;
+import java.util.concurrent.Executor;
+import java.util.concurrent.Executors;
+import java.util.concurrent.ScheduledExecutorService;
+import java.util.concurrent.ScheduledFuture;
+import java.util.concurrent.TimeUnit;
 
 import javax.swing.JButton;
 import javax.swing.JLabel;
@@ -25,10 +30,11 @@ public class SubscriberLine extends JPanel implements Subscriber<Long> {
     private final JButton btnOk = new JButton("Ok");
 
     private Subscription subscription;
-    private long timestamp = System.currentTimeMillis();
     private long total;
-    private long bandwidth;
+    private long lastTotal;
     private long nbRequests;
+
+    private ScheduledExecutorService scheduledThreadPool;
 
     public SubscriberLine(Multi<Long> multi, long nbRequests) {
         this.nbRequests = nbRequests;
@@ -36,6 +42,7 @@ public class SubscriberLine extends JPanel implements Subscriber<Long> {
         initializeListeners();
         tfNbRequests.setValue(nbRequests);
         multi.subscribe().withSubscriber(this);
+        computeDebit();
     }
 
     private void autoRequest() {
@@ -48,6 +55,19 @@ public class SubscriberLine extends JPanel implements Subscriber<Long> {
 
     public void cancel() {
         subscription.cancel();
+        scheduledThreadPool.shutdownNow();
+    }
+
+    private void computeDebit() {
+        scheduledThreadPool = Executors.newScheduledThreadPool(1);
+        scheduledThreadPool.scheduleAtFixedRate(() -> {
+            if (total != lastTotal) {
+                labelBandwidth.setText("Items/s : " + DF.format(total - lastTotal));
+                lastTotal = total;
+            }
+        }, 0, 1, TimeUnit.SECONDS);
+        scheduledThreadPool.scheduleAtFixedRate(() -> labelTotal.setText("Total : " + DF.format(total)), 0, 50,
+                TimeUnit.MILLISECONDS);
     }
 
     private void initializeGUI() {
@@ -84,7 +104,6 @@ public class SubscriberLine extends JPanel implements Subscriber<Long> {
 
     @Override
     public void onNext(Long t) {
-        bandwidth++;
         total++;
 
         if (App.isLongJob) {
@@ -93,15 +112,6 @@ public class SubscriberLine extends JPanel implements Subscriber<Long> {
             } catch (InterruptedException e) {
                 e.printStackTrace();
             }
-        }
-
-        labelTotal.setText("Total : " + DF.format(total));
-
-        long now = System.currentTimeMillis();
-        if (now - timestamp > 1000) {
-            labelBandwidth.setText("Items/s : " + DF.format(bandwidth));
-            bandwidth = 0;
-            timestamp = now;
         }
 
         if (nbRequests < 0) {
