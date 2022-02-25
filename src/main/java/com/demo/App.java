@@ -19,7 +19,8 @@ import io.smallrye.mutiny.infrastructure.Infrastructure;
 
 public class App extends JFrame {
 
-    private static final Multi<Long> multi = Multi.createFrom().items(() -> LongStream.range(0, Long.MAX_VALUE).boxed())
+    private static final Multi<Long> publisher = Multi.createFrom()
+            .items(() -> LongStream.range(0, Long.MAX_VALUE).boxed())
             .emitOn(Infrastructure.getDefaultWorkerPool());
 
     public static boolean isLongJob;
@@ -38,6 +39,7 @@ public class App extends JFrame {
 
     public static void main(String[] args) {
         App app = new App();
+
         app.setTitle("Flux Réactifs");
         app.setDefaultCloseOperation(WindowConstants.EXIT_ON_CLOSE);
         app.setSize(new Dimension(500, 700));
@@ -84,7 +86,7 @@ public class App extends JFrame {
     }
 
     private void onBtnPushPressed() {
-        SubscriberLine subscriberLine = new SubscriberLine(multi, tfPush.getLongValue());
+        SubscriberLine subscriberLine = new SubscriberLine(publisher, tfPush.getLongValue());
         container.add(subscriberLine);
         container.revalidate();
         repaint();
